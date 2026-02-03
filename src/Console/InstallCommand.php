@@ -419,9 +419,49 @@ class InstallCommand extends Command
             return;
         }
 
-        $this->agentsForSkillCleanup()->each(
-            fn (SupportsSkills&Agent $agent) => (new SkillWriter($agent))->removeStale($staleSkillNames)
-        );
+        $agents = $this->agentsForSkillCleanup();
+        $agentCount = $agents->count();
+
+        if ($agentCount === 0) {
+            return;
+        }
+
+        $failureCount = 0;
+
+        $this->info(sprintf(
+            'Removing %d stale skill%s from %d agent%s',
+            count($staleSkillNames),
+            count($staleSkillNames) === 1 ? '' : 's',
+            $agentCount,
+            $agentCount === 1 ? '' : 's'
+        ));
+
+        $this->output->progressStart($agentCount);
+
+        foreach ($agents as $agent) {
+            try {
+                (new SkillWriter($agent))->removeStale($staleSkillNames);
+            } catch (\Throwable $exception) {
+                $failureCount++;
+                $this->error(sprintf(
+                    'Failed to remove stale skills for %s: %s',
+                    $agent->displayName(),
+                    $exception->getMessage()
+                ));
+            }
+
+            $this->output->progressAdvance();
+        }
+
+        $this->output->progressFinish();
+
+        if ($failureCount > 0) {
+            $this->warn(sprintf(
+                'Stale skill cleanup finished with %d failure%s.',
+                $failureCount,
+                $failureCount === 1 ? '' : 's'
+            ));
+        }
     }
 
     /**
