@@ -63,6 +63,15 @@ class InstallCommand extends Command
     /** @var array<int, string> */
     private array $installedSkillNames = [];
 
+    /** @var array<int, string> */
+    private array $previouslyTrackedSkills = [];
+
+    /** @var array<int, string> */
+    private array $previouslyTrackedPackages = [];
+
+    /** @var array<int, string> */
+    private array $previouslyTrackedAgents = [];
+
     const MIN_TEST_COUNT = 6;
 
     public function __construct(
@@ -79,6 +88,9 @@ class InstallCommand extends Command
     {
         $this->terminal->initDimensions();
         $this->projectName = config('app.name');
+        $this->previouslyTrackedSkills = $this->config->getSkills();
+        $this->previouslyTrackedPackages = $this->config->getPackages();
+        $this->previouslyTrackedAgents = $this->config->getAgents();
 
         $this->displayBoostHeader('Install', $this->projectName);
         $this->discoverEnvironment();
@@ -128,6 +140,8 @@ class InstallCommand extends Command
         if ($this->selectedBoostFeatures->contains('mcp')) {
             $this->installMcpServerConfig();
         }
+
+        $this->cleanupStaleSkills();
 
         $this->storeConfig();
     }
@@ -374,6 +388,75 @@ class InstallCommand extends Command
         $guidelineConfig->usesSail = $this->shouldUseSail();
 
         return $guidelineConfig;
+    }
+
+    protected function cleanupStaleSkills(): void
+    {
+        if ($this->isExplicitFlagMode() && $this->input->isInteractive()) {
+            return;
+        }
+
+        if ($this->previouslyTrackedSkills === []) {
+            return;
+        }
+
+        $currentPackages = $this->selectedThirdPartyPackages->values()->toArray();
+        $removedPackages = array_diff($this->previouslyTrackedPackages, $currentPackages);
+
+        if ($removedPackages === []) {
+            return;
+        }
+
+        $currentSkillNames = $this->selectedBoostFeatures->contains('skills')
+            ? $this->installedSkillNames
+            : app(SkillComposer::class)->config($this->buildGuidelineConfig())->skills()->keys()->all();
+
+        $staleSkillNames = array_values(array_diff($this->previouslyTrackedSkills, $currentSkillNames));
+
+        if ($staleSkillNames === []) {
+            return;
+        }
+
+        if ($this->input->isInteractive() && ! $this->confirmSkillRemoval($staleSkillNames)) {
+            return;
+        }
+
+        $this->agentsForSkillCleanup()->each(
+            fn (SupportsSkills&Agent $agent) => (new SkillWriter($agent))->removeStale($staleSkillNames)
+        );
+    }
+
+    /**
+     * @param  array<int, string>  $staleSkillNames
+     */
+    protected function confirmSkillRemoval(array $staleSkillNames): bool
+    {
+        grid(collect($staleSkillNames)->sort()->values()->all());
+
+        return confirm(
+            label: sprintf('Remove %d stale skill%s from selected agents?', count($staleSkillNames), count($staleSkillNames) === 1 ? '' : 's'),
+            default: true,
+            hint: 'Only skills previously managed by Boost will be removed.',
+        );
+    }
+
+    /**
+     * @return Collection<int, SupportsSkills&Agent>
+     */
+    protected function agentsForSkillCleanup(): Collection
+    {
+        $agentsByName = $this->agentsDetector->getAgents()
+            ->keyBy(fn (Agent $agent): string => $agent->name());
+
+        $selectedAgentNames = $this->selectedAgents
+            ->map(fn (Agent $agent): string => $agent->name())
+            ->all();
+
+        return collect([...$this->previouslyTrackedAgents, ...$selectedAgentNames])
+            ->unique()
+            ->map(fn (string $name): ?Agent => $agentsByName->get($name))
+            ->filter(fn (?Agent $agent): bool => $agent instanceof SupportsSkills)
+            ->values();
     }
 
     protected function storeConfig(): void
