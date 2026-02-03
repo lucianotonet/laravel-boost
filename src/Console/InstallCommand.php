@@ -400,10 +400,8 @@ class InstallCommand extends Command
             return;
         }
 
-        $currentPackages = $this->selectedThirdPartyPackages->values()->toArray();
-        $removedPackages = array_diff($this->previouslyTrackedPackages, $currentPackages);
-
-        if ($removedPackages === []) {
+        if (! $this->selectedBoostFeatures->contains('skills')
+            && ! $this->selectedBoostFeatures->contains('guidelines')) {
             return;
         }
 
