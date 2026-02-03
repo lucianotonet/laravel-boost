@@ -431,10 +431,12 @@ class InstallCommand extends Command
      */
     protected function confirmSkillRemoval(array $staleSkillNames): bool
     {
+        $count = count($staleSkillNames);
+
         grid(collect($staleSkillNames)->sort()->values()->all());
 
         return confirm(
-            label: sprintf('Remove %d stale skill%s from selected agents?', count($staleSkillNames), count($staleSkillNames) === 1 ? '' : 's'),
+            label: sprintf('Remove %d stale skill%s from selected agents?', $count, $count === 1 ? '' : 's'),
             default: true,
             hint: 'Only skills previously managed by Boost will be removed.',
         );
