@@ -442,7 +442,20 @@ class InstallCommand extends Command
 
         foreach ($agents as $agent) {
             try {
-                (new SkillWriter($agent))->removeStale($staleSkillNames);
+                $results = (new SkillWriter($agent))->removeStale($staleSkillNames);
+
+                foreach ($results as $skillName => $removed) {
+                    if ($removed) {
+                        continue;
+                    }
+
+                    $failureCount++;
+                    $this->error(sprintf(
+                        'Failed to remove stale skill %s for %s.',
+                        $skillName,
+                        $agent->displayName()
+                    ));
+                }
             } catch (\Throwable $exception) {
                 $failureCount++;
                 $this->error(sprintf(
